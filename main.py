@@ -18,13 +18,9 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-app = FastAPI(
-    title="Math Mentor AI Backend",
-    description="JEE Math Problem Solver with AI Agents",
-    version="2.0.0"
-)
+app = FastAPI(title="Math Mentor AI Backend")
 
-# CORS configuration - allows requests from any origin
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In production, specify your frontend URL
@@ -36,7 +32,7 @@ app.add_middleware(
 # Configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-MODEL_NAME = "tngtech/deepseek-r1t2-chimera:free"
+MODEL_NAME = "xiaomi/mimo-v2-flash:free"
 
 if not OPENROUTER_API_KEY:
     logger.error("OPENROUTER_API_KEY not found in environment variables")
@@ -91,7 +87,7 @@ async def call_llm(prompt: str, system_prompt: str = "") -> str:
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://math-mentor-ai.com",
+        "HTTP-Referer": "http://localhost:3000",
         "X-Title": "Math Mentor AI"
     }
     
@@ -166,6 +162,41 @@ def extract_json_from_text(text: str) -> dict:
 
 
 def is_math_question(text: str) -> bool:
+    text_lower = text.lower().strip()
+    
+    # Greetings and casual queries
+    greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening']
+    casual_queries = ['how are you', 'what can you do', 'help', 'who are you', 'what are you']
+    
+    for greeting in greetings + casual_queries:
+        if text_lower == greeting or text_lower.startswith(greeting):
+            return False
+    
+    # Math keywords
+    math_keywords = [
+        'solve', 'find', 'calculate', 'integrate', 'differentiate', 'derivative',
+        'equation', 'simplify', 'prove', 'evaluate', 'factorize', 'expand',
+        'limit', 'sum', 'product', 'matrix', 'determinant', 'vector', 'percent', 'percentage', '%'
+    ]
+    
+    # Math symbols
+    math_symbols = ['=', '+', '-', '*', '/', '^', '∫', '∑', '∏', 'sin', 'cos', 'tan', 'log', 'ln', '%']
+    
+    # Check for keywords
+    for keyword in math_keywords:
+        if keyword in text_lower:
+            return True
+    
+    for symbol in math_symbols:
+        if symbol in text:
+            return True
+    
+    # Check for numbers
+    if re.search(r'\d+', text):
+        return True
+    
+    return False
+
     """Determine if the input is a math question"""
     text_lower = text.lower().strip()
     
@@ -314,7 +345,9 @@ async def router_agent(parsed_data: dict) -> dict:
     logger.info("Router agent processing...")
     
     problem_type = parsed_data.get("problem_type", "unknown")
+    concepts = parsed_data.get("concepts", [])
     
+    # Simple strategy determination based on problem type
     strategy_map = {
         "trigonometry": {
             "strategy": "Trigonometric identities and equation solving",
@@ -373,7 +406,7 @@ async def solver_agent(question: str, strategy: dict, parsed_data: dict) -> dict
     
     problem_type = parsed_data.get("problem_type", "mathematical problem")
     
-    prompt = f"""You are an expert JEE mathematics teacher. Solve this problem with COMPLETE, DETAILED step-by-step solution.
+    prompt = f"""You are an expert JEE mathematics teacher and profetional problem solver and solves any prompt use katex for formula. Solve this problem with COMPLETE, DETAILED step-by-step solution.
 
 Question: {question}
 
@@ -414,7 +447,7 @@ Make sure to:
 
 Return ONLY the JSON, nothing else."""
     
-    system_prompt = """You are an expert JEE mathematics teacher. You provide complete, detailed step-by-step solutions.
+    system_prompt = """You are an expert JEE mathematics teacher and profetional problem solver who solves any problem . You provide complete, detailed step-by-step solutions.
 Never skip steps. Show all mathematical work. Use proper LaTeX formatting.
 Return only valid JSON with complete solutions."""
     
@@ -599,7 +632,7 @@ async def solve_math_problem(question: MathQuestion):
             timestamp=datetime.now().isoformat()
         ))
         
-        # 3. Solver Agent
+        # 3. Solver Agent (now with complete solving capability)
         logger.info("Starting Solver Agent...")
         solver_result = await solver_agent(
             question.text, 
@@ -697,30 +730,18 @@ async def health_check():
 
 @app.get("/")
 async def root():
-    """Root endpoint with API information"""
+    """Root endpoint"""
     return {
         "message": "Math Mentor AI Backend - JEE Math Solver",
         "version": "2.0.0",
-        "status": "online",
         "capabilities": [
             "Solve complex mathematical problems",
-            "Step-by-step solutions with LaTeX formatting",
-            "Conversational AI for greetings and queries",
-            "Multi-agent problem solving (Parser, Router, Solver, Verifier, Explainer)"
+            "Step-by-step solutions",
+            "Conversational AI for greetings and queries"
         ],
         "endpoints": {
-            "solve": "/api/solve (POST only)",
-            "health": "/api/health (GET)",
-            "docs": "/docs (API documentation)"
-        },
-        "example_request": {
-            "url": "POST /api/solve",
-            "body": {
-                "text": "Solve 2x + 5 = 15",
-                "inputMode": "text",
-                "confidence": 0.9,
-                "requiresHITL": False
-            }
+            "solve": "/api/solve",
+            "health": "/api/health"
         }
     }
 
