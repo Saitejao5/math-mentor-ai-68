@@ -24,70 +24,110 @@ const TutorInterface: React.FC = () => {
   const [inputConfidence, setInputConfidence] = useState<number>(1);
   const [result, setResult] = useState<any>(null);
 
-  const simulateAgentProcessing = useCallback(async () => {
-    const agentResults = [
-      'Parsed: Integration problem with exponential',
-      'Strategy: Integration by parts (multiple iterations)',
-      'Solved using tabular method',
-      'Verified via differentiation',
-      'Generated 3-step explanation',
-    ];
-
-    for (let i = 0; i < initialAgents.length; i++) {
-      setAgents(prev => prev.map((agent, idx) => ({
-        ...agent,
-        status: idx === i ? 'running' : idx < i ? 'completed' : 'pending',
-        result: idx < i ? agentResults[idx] : undefined,
-      })));
+  const simulateAgentProcessing = useCallback(async (questionData: {
+    text: string;
+    inputMode: string;
+    confidence: number;
+    requiresHITL: boolean;
+  }) => {
+    try {
+      console.log('Sending request to backend:', questionData);
       
-      await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 400));
+      // Call the backend API
+      const response = await fetch('http://localhost:8000/api/solve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(questionData)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API error response:', errorText);
+        throw new Error(`API error: ${response.status} - ${errorText}`);
+      }
+
+      const backendResult = await response.json();
+      console.log('Received backend result:', backendResult);
+
+      // Animate through agents using backend results
+      if (backendResult.agentResults && backendResult.agentResults.length > 0) {
+        for (let i = 0; i < backendResult.agentResults.length; i++) {
+          const agentResult = backendResult.agentResults[i];
+          
+          // Update agent status to running
+          setAgents(prev => prev.map((agent, idx) => ({
+            ...agent,
+            status: idx === i ? 'running' : idx < i ? 'completed' : 'pending',
+            result: idx < i ? backendResult.agentResults[idx].result : undefined,
+          })));
+          
+          // Wait before moving to next agent
+          await new Promise(resolve => setTimeout(resolve, 800));
+        }
+
+        // Mark all agents as completed
+        setAgents(prev => prev.map((agent, idx) => ({
+          ...agent,
+          status: 'completed',
+          result: backendResult.agentResults[idx]?.result || 'Completed',
+        })));
+      } else {
+        // Fallback: animate through agents without specific results
+        const agentNames = ['parser', 'router', 'solver', 'verifier', 'explainer'];
+        for (let i = 0; i < agentNames.length; i++) {
+          setAgents(prev => prev.map((agent, idx) => ({
+            ...agent,
+            status: idx === i ? 'running' : idx < i ? 'completed' : 'pending',
+          })));
+          await new Promise(resolve => setTimeout(resolve, 600));
+        }
+
+        // Mark all as completed
+        setAgents(prev => prev.map(agent => ({
+          ...agent,
+          status: 'completed',
+        })));
+      }
+
+      // Set the result from backend
+      console.log('Setting result state:', backendResult);
+      setResult(backendResult);
+      setIsProcessing(false);
+
+    } catch (error) {
+      console.error('Error processing question:', error);
+      
+      // Show error state in agents
+      setAgents(prev => prev.map(agent => ({
+        ...agent,
+        status: 'completed',
+        result: 'Error occurred',
+      })));
+
+      // Set error result
+      setResult({
+        finalAnswer: {
+          latex: 'Error processing question. Please try again.',
+          confidence: 0,
+        },
+        steps: [
+          {
+            step: 1,
+            description: 'An error occurred while processing your question',
+            latex: error instanceof Error ? error.message : 'Unknown error',
+          },
+        ],
+        verification: {
+          status: 'failed',
+          method: 'error',
+        },
+        agentTrace: ['parser', 'router', 'solver', 'verifier', 'explainer'],
+        hitlApplied: false,
+      });
+
+      setIsProcessing(false);
     }
-
-    // All complete
-    setAgents(prev => prev.map((agent, idx) => ({
-      ...agent,
-      status: 'completed',
-      result: agentResults[idx],
-    })));
-
-    // Set result
-    setResult({
-      finalAnswer: {
-        latex: '\\int x^2 e^x dx = e^x(x^2 - 2x + 2) + C',
-        confidence: 0.94,
-      },
-      steps: [
-        {
-          step: 1,
-          description: 'Apply integration by parts formula',
-          latex: '\\int u \\, dv = uv - \\int v \\, du',
-        },
-        {
-          step: 2,
-          description: 'Let u = x² and dv = eˣ dx',
-          latex: 'u = x^2, \\quad du = 2x \\, dx, \\quad dv = e^x dx, \\quad v = e^x',
-        },
-        {
-          step: 3,
-          description: 'Apply formula and repeat for remaining integral',
-          latex: '= x^2 e^x - 2\\int x e^x dx = x^2 e^x - 2(xe^x - e^x) + C',
-        },
-        {
-          step: 4,
-          description: 'Simplify to final answer',
-          latex: '= e^x(x^2 - 2x + 2) + C',
-        },
-      ],
-      verification: {
-        status: 'verified',
-        method: 'derivative check',
-      },
-      agentTrace: ['parser', 'router', 'solver', 'verifier', 'explainer'],
-      hitlApplied: inputConfidence < 0.75,
-    });
-
-    setIsProcessing(false);
-  }, [inputConfidence]);
+  }, []);
 
   const handleSubmit = useCallback((data: {
     text: string;
@@ -95,13 +135,15 @@ const TutorInterface: React.FC = () => {
     confidence: number;
     requiresHITL: boolean;
   }) => {
+    console.log('Question submitted:', data);
     setCurrentQuestion(data.text);
     setInputConfidence(data.confidence);
     setIsProcessing(true);
     setResult(null);
     setAgents(initialAgents);
     
-    simulateAgentProcessing();
+    // Pass the full data object to the processing function
+    simulateAgentProcessing(data);
   }, [simulateAgentProcessing]);
 
   const resetSession = () => {
