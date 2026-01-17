@@ -33,10 +33,13 @@ const TutorInterface: React.FC = () => {
     try {
       console.log('Sending request to backend:', questionData);
       
-      // Call the backend API
-      const response = await fetch('https://math-mentor-ai-68-4.onrender.com', {
+      // FIXED: Changed endpoint from root to /api/solve
+      const response = await fetch('https://math-mentor-ai-68-4.onrender.com/api/solve', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
         body: JSON.stringify(questionData)
       });
 
