@@ -1,6 +1,5 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os
@@ -19,16 +18,19 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-app = FastAPI(title="Math Mentor AI Backend")
+app = FastAPI(
+    title="Math Mentor AI Backend",
+    description="JEE Math Problem Solver with AI Agents",
+    version="2.0.0"
+)
 
-# CORS configuration - FIXED
+# CORS configuration - allows requests from any origin
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # In production, specify your frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"]
 )
 
 # Configuration
@@ -83,23 +85,13 @@ class SolutionResponse(BaseModel):
     agentResults: Optional[List[AgentResult]] = None
 
 
-# Global exception handler
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Global exception handler: {str(exc)}\n{traceback.format_exc()}")
-    return JSONResponse(
-        status_code=500,
-        content={"detail": f"Internal server error: {str(exc)}"}
-    )
-
-
 # Agent Processing Functions
 async def call_llm(prompt: str, system_prompt: str = "") -> str:
     """Call OpenRouter API with the given prompt"""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:3000",
+        "HTTP-Referer": "https://math-mentor-ai.com",
         "X-Title": "Math Mentor AI"
     }
     
@@ -432,6 +424,7 @@ Return only valid JSON with complete solutions."""
         
         solution = extract_json_from_text(response)
         
+        # Validate and fix solution structure
         if not solution or 'final_answer_latex' not in solution:
             logger.warning("Solver response missing final_answer_latex, creating default")
             solution = {
@@ -439,6 +432,7 @@ Return only valid JSON with complete solutions."""
                 "solution_steps": []
             }
         
+        # Ensure solution_steps is a valid list
         if 'solution_steps' not in solution or not isinstance(solution['solution_steps'], list):
             logger.warning("Solver response missing or invalid solution_steps")
             solution['solution_steps'] = [
@@ -449,6 +443,7 @@ Return only valid JSON with complete solutions."""
                 }
             ]
         
+        # Validate each step
         validated_steps = []
         for i, step in enumerate(solution['solution_steps']):
             if isinstance(step, dict):
@@ -462,6 +457,7 @@ Return only valid JSON with complete solutions."""
             solution['solution_steps'] = validated_steps
         
         logger.info(f"Solver generated {len(solution.get('solution_steps', []))} steps")
+        logger.info(f"Final answer: {solution.get('final_answer_latex', 'N/A')[:100]}")
         
         return {
             "result": f"Generated detailed solution with {len(solution.get('solution_steps', []))} steps",
@@ -478,6 +474,11 @@ Return only valid JSON with complete solutions."""
                         "step_number": 1,
                         "description": "Problem analysis",
                         "latex_expression": "\\text{Analyzing: } " + question[:50]
+                    },
+                    {
+                        "step_number": 2,
+                        "description": "Solution approach",
+                        "latex_expression": "\\text{Applying mathematical techniques}"
                     }
                 ]
             }
@@ -514,6 +515,8 @@ Return ONLY valid JSON:
     
     try:
         response = await call_llm(prompt, system_prompt)
+        logger.info(f"Verifier raw response: {response[:200]}...")
+        
         verification = extract_json_from_text(response)
         
         if not verification or 'is_correct' not in verification:
@@ -524,11 +527,14 @@ Return ONLY valid JSON:
                 "issues": []
             }
         
+        # Ensure confidence is a float
         if 'confidence' in verification:
             try:
                 verification['confidence'] = float(verification['confidence'])
             except:
                 verification['confidence'] = 0.85
+        
+        logger.info(f"Verification: {verification.get('is_correct')} with confidence {verification.get('confidence')}")
         
         return {
             "result": f"Verified: {verification.get('verification_method', 'logical check')}",
@@ -550,14 +556,15 @@ Return ONLY valid JSON:
 async def explainer_agent(solution: dict) -> dict:
     """Create clear step-by-step explanation"""
     logger.info("Explainer agent processing...")
+    
     steps = solution.get("solution_steps", [])
+    
     return {
         "result": f"Generated explanation with {len(steps)} steps",
         "data": {"explanation": "Detailed solution provided with step-by-step breakdown"}
     }
 
 
-# MAIN ENDPOINT - POST method only
 @app.post("/api/solve", response_model=SolutionResponse)
 async def solve_math_problem(question: MathQuestion):
     """Main endpoint to solve mathematical problems or handle casual queries"""
@@ -575,6 +582,7 @@ async def solve_math_problem(question: MathQuestion):
     
     try:
         # 1. Parser Agent
+        logger.info("Starting Parser Agent...")
         parser_result = await parser_agent(question.text)
         agent_results.append(AgentResult(
             name="parser",
@@ -583,6 +591,7 @@ async def solve_math_problem(question: MathQuestion):
         ))
         
         # 2. Router Agent
+        logger.info("Starting Router Agent...")
         router_result = await router_agent(parser_result["data"])
         agent_results.append(AgentResult(
             name="router",
@@ -591,6 +600,7 @@ async def solve_math_problem(question: MathQuestion):
         ))
         
         # 3. Solver Agent
+        logger.info("Starting Solver Agent...")
         solver_result = await solver_agent(
             question.text, 
             router_result["data"],
@@ -603,6 +613,7 @@ async def solve_math_problem(question: MathQuestion):
         ))
         
         # 4. Verifier Agent
+        logger.info("Starting Verifier Agent...")
         verifier_result = await verifier_agent(question.text, solver_result["data"])
         agent_results.append(AgentResult(
             name="verifier",
@@ -611,6 +622,7 @@ async def solve_math_problem(question: MathQuestion):
         ))
         
         # 5. Explainer Agent
+        logger.info("Starting Explainer Agent...")
         explainer_result = await explainer_agent(solver_result["data"])
         agent_results.append(AgentResult(
             name="explainer",
@@ -638,6 +650,7 @@ async def solve_math_problem(question: MathQuestion):
                     latex="..."
                 ))
         
+        # Ensure we have at least one step
         if not steps:
             steps.append(Step(
                 step=1,
@@ -684,18 +697,30 @@ async def health_check():
 
 @app.get("/")
 async def root():
-    """Root endpoint"""
+    """Root endpoint with API information"""
     return {
         "message": "Math Mentor AI Backend - JEE Math Solver",
         "version": "2.0.0",
+        "status": "online",
         "capabilities": [
             "Solve complex mathematical problems",
-            "Step-by-step solutions",
-            "Conversational AI for greetings and queries"
+            "Step-by-step solutions with LaTeX formatting",
+            "Conversational AI for greetings and queries",
+            "Multi-agent problem solving (Parser, Router, Solver, Verifier, Explainer)"
         ],
         "endpoints": {
             "solve": "/api/solve (POST only)",
-            "health": "/api/health"
+            "health": "/api/health (GET)",
+            "docs": "/docs (API documentation)"
+        },
+        "example_request": {
+            "url": "POST /api/solve",
+            "body": {
+                "text": "Solve 2x + 5 = 15",
+                "inputMode": "text",
+                "confidence": 0.9,
+                "requiresHITL": False
+            }
         }
     }
 
