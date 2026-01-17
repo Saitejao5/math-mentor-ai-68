@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: math-mentor-backend
+    runtime: python
+    env: python
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: OPENROUTER_API_KEY
+        sync: false
+    healthCheckPath: /api/health
+```
+
+## Alternative: Update your `requirements.txt`
+
+If you're using the web dashboard, make sure your **requirements.txt** is:
+```
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+python-dotenv==1.0.0
+httpx==0.25.1
