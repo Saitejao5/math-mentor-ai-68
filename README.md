@@ -1,73 +1,122 @@
-# Welcome to your Lovable project
+# 🧠 Reliable Multimodal Math Mentor  
+**AI Engineer Assignment – AI Planet**
 
-## Project info
+---
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## 1. Executive Summary
 
-## How can I edit this code?
+This project delivers a **Reliable Multimodal Math Mentor** capable of solving **JEE-style mathematics problems** with high correctness and explainability.  
+The system integrates **multimodal input processing**, **Retrieval-Augmented Generation (RAG)**, a **multi-agent reasoning framework**, **Human-in-the-Loop (HITL)** validation, and a **memory-based self-learning layer**.
 
-There are several ways of editing your application.
+The primary goal is not just problem solving, but building a **trustworthy AI system** that can **verify, explain, and improve over time**.
 
-**Use Lovable**
+---
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## 2. Objectives & Success Criteria
 
-Changes made via Lovable will be committed automatically to this repo.
+### Objectives
+- Solve JEE-level math problems accurately
+- Support **Text, Image, and Audio** inputs
+- Ensure correctness using verification & HITL
+- Provide clear, step-by-step explanations
+- Learn from feedback without retraining models
+- Deploy a testable, production-ready application
 
-**Use your preferred IDE**
+### Success Criteria
+- Reviewer can test via a public URL
+- Agent traces are visible
+- HITL is demonstrably functional
+- Memory reuse can be shown on similar problems
+- No hallucinated citations
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+---
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+## 3. Scope Definition
 
-Follow these steps:
+### In-Scope
+- Algebra
+- Probability
+- Basic Calculus
+- Linear Algebra basics
+- OCR, ASR, RAG, Multi-Agent system
+- Streamlit-based UI
+- Lightweight deployment
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+### Out-of-Scope
+- Olympiad-level mathematics
+- Model fine-tuning
+- Heavy DevOps or autoscaling
+- Real-time collaboration
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+---
 
-# Step 3: Install the necessary dependencies.
-npm i
+## 4. Development Plan (Phase-wise)
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+### Phase 1: Foundation Setup
+- Repository initialization
+- Environment & dependency setup
+- Base Streamlit app scaffold
+- Folder structure definition
 
-**Edit a file directly in GitHub**
+### Phase 2: Multimodal Input
+- Image OCR pipeline
+- Audio ASR pipeline
+- Text input handler
+- Extraction preview & editing UI
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Phase 3: Multi-Agent System
+- Parser Agent
+- Router Agent
+- Solver Agent
+- Verifier Agent
+- Explainer Agent
+- Agent trace logging
 
-**Use GitHub Codespaces**
+### Phase 4: RAG Pipeline
+- Curated math knowledge base
+- Chunking & embedding
+- Vector store integration
+- Top-K retrieval logic
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### Phase 5: HITL Integration
+- Confidence scoring
+- HITL triggers
+- Human approval/edit flow
+- Feedback capture
 
-## What technologies are used for this project?
+### Phase 6: Memory & Learning
+- Memory schema definition
+- Similarity search
+- Pattern reuse
+- Feedback-driven improvements
 
-This project is built with:
+### Phase 7: UI Finalization
+- Confidence indicators
+- Context panel
+- Feedback buttons
+- Error handling
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+### Phase 8: Deployment & Validation
+- Cloud deployment
+- End-to-end testing
+- Demo recording
+- Documentation finalization
 
-## How can I deploy this project?
+---
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+## 5. System Architecture (High-Level)
 
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+```mermaid
+flowchart LR
+    User --> UI
+    UI --> InputProcessor
+    InputProcessor --> ParserAgent
+    ParserAgent --> RouterAgent
+    RouterAgent --> SolverAgent
+    SolverAgent --> RAG
+    SolverAgent --> VerifierAgent
+    VerifierAgent --> ExplainerAgent
+    ExplainerAgent --> UI
+    VerifierAgent --> HITL
+    HITL --> Memory
+    SolverAgent --> Memory
