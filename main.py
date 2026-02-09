@@ -23,7 +23,7 @@ app = FastAPI(title="Math Mentor AI Backend")
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # In production, specify your frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,7 +82,7 @@ class SolutionResponse(BaseModel):
 
 
 # Agent Processing Functions
-async def call_llm(prompt: str, system_prompt: str = "", temperature: float = 0.3) -> str:
+async def call_llm(prompt: str, system_prompt: str = "") -> str:
     """Call OpenRouter API with the given prompt"""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -99,13 +99,13 @@ async def call_llm(prompt: str, system_prompt: str = "", temperature: float = 0.
     payload = {
         "model": MODEL_NAME,
         "messages": messages,
-        "temperature": temperature,
-        "max_tokens": 4000
+        "temperature": 0.7,
+        "max_tokens": 3000
     }
     
     logger.info(f"Calling LLM with prompt length: {len(prompt)}")
     
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=90.0) as client:
         try:
             response = await client.post(
                 f"{OPENROUTER_BASE_URL}/chat/completions",
@@ -127,83 +127,164 @@ async def call_llm(prompt: str, system_prompt: str = "", temperature: float = 0.
 
 
 def extract_json_from_text(text: str) -> dict:
-    """Extract JSON from text with improved pattern matching"""
-    # Remove any markdown formatting
-    text = text.strip()
-    
-    # Try direct JSON parse first
+    """Extract JSON from text that might contain markdown or other formatting"""
     try:
+        # Try direct JSON parse first
         return json.loads(text)
     except:
         pass
     
-    # Try to find JSON in code blocks
+    # Try to find JSON in markdown code blocks
     json_patterns = [
-        r'```json\s*(\{.*?\})\s*```',
-        r'```\s*(\{.*?\})\s*```',
-        r'(\{[^`]*\})',
+        r'```json\s*(.*?)\s*```',
+        r'```\s*(.*?)\s*```',
     ]
     
     for pattern in json_patterns:
-        matches = re.findall(pattern, text, re.DOTALL | re.MULTILINE)
+        matches = re.findall(pattern, text, re.DOTALL)
         for match in matches:
             try:
-                cleaned = match.strip()
-                return json.loads(cleaned)
+                return json.loads(match)
             except:
                 continue
     
-    # Last resort: find anything between first { and last }
-    try:
-        start = text.find('{')
-        end = text.rfind('}')
-        if start != -1 and end != -1 and end > start:
-            potential_json = text[start:end+1]
-            return json.loads(potential_json)
-    except:
-        pass
+    # Try to find any JSON object in the text
+    json_object_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+    matches = re.findall(json_object_pattern, text, re.DOTALL)
+    for match in matches:
+        try:
+            return json.loads(match)
+        except:
+            continue
     
-    logger.warning("Could not extract JSON from text")
+    # Return empty dict if nothing works
     return {}
 
 
 def is_math_question(text: str) -> bool:
-    """Determine if the input is a math question"""
+    """
+    Determine if the input is a math question.
+    Returns True for math questions, False for casual greetings/chat.
+    """
     text_lower = text.lower().strip()
     
-    # Greetings and casual queries
-    greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening']
-    casual_queries = ['how are you', 'what can you do', 'help', 'who are you', 'what are you']
-    
-    for greeting in greetings + casual_queries:
-        if text_lower == greeting or text_lower.startswith(greeting):
-            return False
-    
-    # Math keywords
-    math_keywords = [
-        'solve', 'find', 'calculate', 'integrate', 'differentiate', 'derivative',
-        'equation', 'simplify', 'prove', 'evaluate', 'factorize', 'factor', 'expand',
-        'limit', 'sum', 'product', 'matrix', 'determinant', 'vector', 'percent', 
-        'percentage', 'angle', 'triangle', 'circle', 'area', 'volume', 'what is'
+    # Define exact match greetings (very short, no math context)
+    pure_greetings = [
+        'hi', 'hello', 'hey', 'hi there', 'hello there',
+        'good morning', 'good afternoon', 'good evening',
+        'how are you', 'how are you?', 'whats up', "what's up",
+        'sup', 'yo'
     ]
     
-    # Math symbols
-    math_symbols = ['=', '+', '-', '×', '/', '^', '∫', '∑', '∏', 'sin', 'cos', 'tan', 'log', 'ln', '%', '√']
+    # Check for exact greeting matches (entire message is just a greeting)
+    if text_lower in pure_greetings:
+        logger.info(f"Detected pure greeting: {text_lower}")
+        return False
     
-    # Check for keywords
+    # Define casual query patterns
+    casual_patterns = [
+        r'^what can you do\??$',
+        r'^who are you\??$',
+        r'^what are you\??$',
+        r'^help me$',
+        r'^help\??$',
+        r'^introduce yourself$'
+    ]
+    
+    for pattern in casual_patterns:
+        if re.match(pattern, text_lower):
+            logger.info(f"Detected casual query: {text_lower}")
+            return False
+    
+    # Math keywords - expanded list
+    math_keywords = [
+        'solve', 'find', 'calculate', 'compute', 'integrate', 'differentiate', 
+        'derivative', 'equation', 'simplify', 'prove', 'evaluate', 'factorize', 
+        'factor', 'expand', 'limit', 'sum', 'product', 'matrix', 'determinant', 
+        'vector', 'percent', 'percentage', 'what is', 'how much', 'how many',
+        'value of', 'result of', 'answer to', 'solution to', 'squared', 'cubed',
+        'root', 'sqrt', 'power', 'exponent', 'logarithm', 'tangent', 'sine',
+        'cosine', 'angle', 'area', 'volume', 'perimeter', 'distance', 'speed',
+        'rate', 'ratio', 'proportion', 'probability', 'permutation', 'combination',
+        'median', 'mean', 'mode', 'standard deviation', 'variance'
+    ]
+    
+    # Check for math keywords
     for keyword in math_keywords:
         if keyword in text_lower:
+            logger.info(f"Detected math keyword: {keyword}")
             return True
     
-    # Check for symbols
+    # Math symbols and patterns - expanded
+    math_symbols = [
+        '=', '+', '-', '×', '÷', '*', '/', '^', '√', '∫', '∑', '∏', 
+        '∂', 'π', '°', '≤', '≥', '≠', '≈', '∞', '%'
+    ]
+    
     for symbol in math_symbols:
         if symbol in text:
+            logger.info(f"Detected math symbol: {symbol}")
             return True
     
-    # Check for numbers
-    if re.search(r'\d+', text):
+    # Math function patterns
+    math_functions = [
+        r'\bsin\b', r'\bcos\b', r'\btan\b', r'\blog\b', r'\bln\b',
+        r'\bexp\b', r'\babs\b', r'\bmax\b', r'\bmin\b', r'\bsec\b',
+        r'\bcsc\b', r'\bcot\b', r'\bsinh\b', r'\bcosh\b', r'\btanh\b'
+    ]
+    
+    for func_pattern in math_functions:
+        if re.search(func_pattern, text_lower):
+            logger.info(f"Detected math function: {func_pattern}")
+            return True
+    
+    # Number patterns indicating math
+    number_patterns = [
+        r'\d+\s*[\+\-\*/\^×÷]\s*\d+',  # Basic arithmetic: 5 + 3
+        r'\d+\s*=\s*\d+',  # Equations: x = 5
+        r'\d+\s*[<>≤≥]\s*\d+',  # Inequalities
+        r'\d+\.\d+',  # Decimals: 3.14
+        r'\d+/\d+',  # Fractions: 3/4
+        r'\d+\^',  # Exponents: 2^3
+        r'\d+%',  # Percentages: 50%
+        r'x\s*[\+\-\*/\^=]',  # Variable operations
+        r'[a-z]\s*=\s*\d+',  # Variable assignments: x = 5
+    ]
+    
+    for pattern in number_patterns:
+        if re.search(pattern, text_lower):
+            logger.info(f"Detected math number pattern: {pattern}")
+            return True
+    
+    # Question patterns that suggest math
+    math_question_patterns = [
+        r'what is \d+',  # "what is 5 + 3"
+        r'how much is',
+        r'how many',
+        r'calculate',
+        r'find the (value|answer|solution|result)',
+    ]
+    
+    for pattern in math_question_patterns:
+        if re.search(pattern, text_lower):
+            logger.info(f"Detected math question pattern: {pattern}")
+            return True
+    
+    # If we have numbers AND it's a question, likely math
+    has_numbers = bool(re.search(r'\d+', text))
+    is_question = '?' in text or any(text_lower.startswith(q) for q in ['what', 'how', 'find', 'solve', 'calculate'])
+    
+    if has_numbers and is_question:
+        logger.info("Detected numbers + question format = math")
         return True
     
+    # Default: if it contains any numbers, treat as potential math
+    # (better to solve a math question than reject it)
+    if has_numbers:
+        logger.info("Contains numbers, treating as math question")
+        return True
+    
+    logger.info(f"No math indicators found, treating as casual: {text_lower}")
     return False
 
 
@@ -221,6 +302,7 @@ async def handle_casual_query(text: str) -> SolutionResponse:
         'help': "I'm here to help you with mathematics! I can solve equations, integration, differentiation, trigonometry, algebra, and much more. Just type your math question and I'll provide a detailed step-by-step solution."
     }
     
+    # Find matching response
     casual_response = None
     for key, value in response_map.items():
         if key in text_lower:
@@ -228,7 +310,7 @@ async def handle_casual_query(text: str) -> SolutionResponse:
             break
     
     if not casual_response:
-        casual_response = "I'm a JEE Math Mentor, specialized in solving mathematical problems. If you have any math questions, feel free to ask!"
+        casual_response = "I'm a JEE Math Mentor, specialized in solving mathematical problems. If you have any math questions, feel free to ask! For non-mathematical queries, I'm here specifically to help with math."
     
     return SolutionResponse(
         finalAnswer=FinalAnswer(
@@ -262,40 +344,53 @@ async def parser_agent(question: str) -> dict:
     """Parse and normalize the mathematical question"""
     logger.info(f"Parser agent processing: {question[:50]}...")
     
-    # Simple classification without relying on complex LLM parsing
-    problem_type = "mathematical problem"
-    concepts = ["general math"]
+    prompt = f"""Analyze this mathematical question and extract key information:
+
+Question: {question}
+
+Provide a JSON response with:
+1. problem_type (e.g., "trigonometry", "integration", "differentiation", "algebra", "geometry", "arithmetic", "calculus")
+2. concepts (list of key mathematical concepts involved)
+3. normalized_question (cleaned and properly formatted version)
+
+Return ONLY valid JSON in this exact format:
+{{
+  "problem_type": "type here",
+  "concepts": ["concept1", "concept2"],
+  "normalized_question": "question here"
+}}"""
     
-    question_lower = question.lower()
+    system_prompt = "You are a mathematical parser agent. Analyze math problems and return only valid JSON."
     
-    if any(word in question_lower for word in ['sin', 'cos', 'tan', 'cot', 'sec', 'csc']):
-        problem_type = "trigonometry"
-        concepts = ["trigonometric equations", "identities"]
-    elif any(word in question_lower for word in ['integrate', 'integration', '∫']):
-        problem_type = "integration"
-        concepts = ["calculus", "integration"]
-    elif any(word in question_lower for word in ['differentiate', 'derivative', "d/dx"]):
-        problem_type = "differentiation"
-        concepts = ["calculus", "differentiation"]
-    elif any(word in question_lower for word in ['equation', 'solve', 'find x', 'find y']):
-        problem_type = "algebra"
-        concepts = ["algebraic equations"]
-    elif any(word in question_lower for word in ['triangle', 'circle', 'angle', 'area', 'perimeter']):
-        problem_type = "geometry"
-        concepts = ["geometric calculations"]
-    
-    parsed = {
-        "problem_type": problem_type,
-        "concepts": concepts,
-        "normalized_question": question
-    }
-    
-    logger.info(f"Parser result: {problem_type}")
-    
-    return {
-        "result": f"Identified as: {problem_type}",
-        "data": parsed
-    }
+    try:
+        response = await call_llm(prompt, system_prompt)
+        logger.info(f"Parser raw response: {response[:200]}...")
+        
+        parsed = extract_json_from_text(response)
+        
+        if not parsed or 'problem_type' not in parsed:
+            parsed = {
+                "problem_type": "mathematical problem",
+                "concepts": ["general math"],
+                "normalized_question": question
+            }
+        
+        logger.info(f"Parser result: {parsed.get('problem_type')}")
+        
+        return {
+            "result": f"Identified as: {parsed.get('problem_type', 'mathematical problem')}",
+            "data": parsed
+        }
+    except Exception as e:
+        logger.error(f"Parser agent error: {str(e)}")
+        return {
+            "result": "Identified as: mathematical problem",
+            "data": {
+                "problem_type": "mathematical problem",
+                "concepts": ["general math"],
+                "normalized_question": question
+            }
+        }
 
 
 async def router_agent(parsed_data: dict) -> dict:
@@ -303,49 +398,48 @@ async def router_agent(parsed_data: dict) -> dict:
     logger.info("Router agent processing...")
     
     problem_type = parsed_data.get("problem_type", "unknown")
+    concepts = parsed_data.get("concepts", [])
     
+    # Simple strategy determination based on problem type
     strategy_map = {
         "trigonometry": {
-            "strategy": "Trigonometric problem solving",
+            "strategy": "Trigonometric identities and equation solving",
             "key_steps": [
-                "Apply trigonometric identities",
-                "Simplify the expression",
-                "Solve for the variable",
-                "Find all solutions in the given range"
+                "Apply trigonometric identities to simplify",
+                "Solve the resulting equation",
+                "Verify solutions are in the given domain"
             ]
         },
         "integration": {
             "strategy": "Integration techniques",
             "key_steps": [
-                "Identify the integration method",
-                "Apply substitution or integration by parts if needed",
-                "Integrate term by term",
-                "Add constant of integration"
+                "Identify the integration method (substitution, parts, etc.)",
+                "Apply the method step by step",
+                "Add constant of integration and verify"
             ]
         },
         "differentiation": {
             "strategy": "Differentiation rules",
             "key_steps": [
-                "Identify the function type",
-                "Apply appropriate differentiation rules",
-                "Simplify the derivative"
+                "Identify applicable differentiation rules",
+                "Apply rules systematically",
+                "Simplify the final derivative"
             ]
         },
         "algebra": {
-            "strategy": "Algebraic manipulation",
+            "strategy": "Algebraic manipulation and solving",
             "key_steps": [
-                "Simplify the equation",
-                "Isolate the variable",
-                "Solve for the unknown",
+                "Simplify and rearrange the equation",
+                "Solve for the unknown variable(s)",
                 "Verify the solution"
             ]
         },
-        "geometry": {
-            "strategy": "Geometric problem solving",
+        "arithmetic": {
+            "strategy": "Arithmetic computation",
             "key_steps": [
-                "Identify given information",
-                "Apply relevant formulas",
-                "Calculate the required value"
+                "Identify the operations needed",
+                "Perform calculations step by step",
+                "Verify the final answer"
             ]
         }
     }
@@ -353,245 +447,114 @@ async def router_agent(parsed_data: dict) -> dict:
     strategy = strategy_map.get(problem_type, {
         "strategy": "Step-by-step analytical approach",
         "key_steps": [
-            "Understand the problem",
-            "Apply mathematical techniques",
-            "Solve systematically",
-            "Verify the answer"
+            "Understand the problem requirements",
+            "Apply appropriate mathematical techniques",
+            "Verify the solution"
         ]
     })
     
     logger.info(f"Router strategy: {strategy.get('strategy')}")
     
     return {
-        "result": f"Strategy: {strategy.get('strategy')}",
+        "result": f"Strategy selected: {strategy.get('strategy')}",
         "data": strategy
     }
 
 
 async def solver_agent(question: str, strategy: dict, parsed_data: dict) -> dict:
-    """Solve the mathematical problem with detailed steps - IMPROVED VERSION"""
+    """Solve the mathematical problem with detailed steps"""
     logger.info("Solver agent processing...")
     
     problem_type = parsed_data.get("problem_type", "mathematical problem")
     
-    # Simplified, more reliable prompt that works better with free models
-    prompt = f"""Solve this math problem step by step. Be clear and detailed.
+    prompt = f"""You are an expert JEE mathematics teacher and professional problem solver who solves ANY mathematical problem. Use KaTeX for all formulas.
 
-Problem: {question}
+Question: {question}
 
-Provide your solution in this EXACT JSON format (no extra text):
+Problem Type: {problem_type}
+Approach: {strategy.get('strategy', 'analytical approach')}
+
+IMPORTANT INSTRUCTIONS:
+1. Provide a COMPLETE solution with ALL steps shown
+2. Each step should show actual mathematical work, not just descriptions
+3. Use proper LaTeX formatting for all mathematical expressions
+4. Show intermediate calculations clearly
+5. The final answer should be exact and complete
+6. Solve ANY type of math problem - arithmetic, algebra, calculus, geometry, etc.
+
+Return your response as valid JSON in this EXACT format:
 {{
-  "final_answer": "your answer here",
-  "steps": [
-    {{"step": 1, "description": "what you're doing", "math": "mathematical expression"}},
-    {{"step": 2, "description": "next step", "math": "next expression"}}
+  "final_answer_latex": "complete final answer in LaTeX (e.g., x = \\\\frac{{\\\\pi}}{{6}}, \\\\frac{{5\\\\pi}}{{6}} or 42 or \\\\frac{{15}}{{4}})",
+  "solution_steps": [
+    {{
+      "step_number": 1,
+      "description": "Clear description of what this step does",
+      "latex_expression": "The actual mathematical work in LaTeX"
+    }},
+    {{
+      "step_number": 2,
+      "description": "Next step description",
+      "latex_expression": "Next mathematical work in LaTeX"
+    }}
   ]
 }}
 
-Important:
-- Show ALL working steps
-- Use clear LaTeX for math (e.g., \\frac{{a}}{{b}}, \\sin(x), x^2)
-- Be thorough and complete
-- Return ONLY the JSON, nothing else"""
+Make sure to:
+- Show ALL algebraic manipulations
+- Include ALL intermediate steps
+- Write complete mathematical expressions in LaTeX
+- For trigonometric problems, show identity applications
+- For calculus, show the integration/differentiation process
+- For arithmetic, show each calculation step
+- Include at least 3-6 detailed steps
+- ALWAYS provide a numerical or symbolic final answer
+
+Return ONLY the JSON, nothing else."""
     
-    system_prompt = "You are a math teacher. Solve problems step-by-step. Return only valid JSON."
+    system_prompt = """You are an expert JEE mathematics teacher and professional problem solver who solves ANY problem presented.
+Never skip steps. Show all mathematical work. Use proper LaTeX formatting.
+Return only valid JSON with complete solutions. You can solve arithmetic, algebra, calculus, geometry, and all types of math problems."""
     
     try:
-        # Try to get solution from LLM
-        response = await call_llm(prompt, system_prompt, temperature=0.3)
-        logger.info(f"Solver response: {response[:300]}...")
+        response = await call_llm(prompt, system_prompt)
+        logger.info(f"Solver raw response length: {len(response)}")
         
-        # Extract JSON
         solution = extract_json_from_text(response)
         
-        # If JSON extraction failed, try a simpler approach
-        if not solution or 'final_answer' not in solution:
-            logger.warning("First attempt failed, trying direct solution...")
-            
-            # Direct mathematical solution without strict JSON requirement
-            direct_prompt = f"""Solve this problem completely with full working:
-
-{question}
-
-Show every step of your solution clearly."""
-            
-            direct_response = await call_llm(direct_prompt, "You are an expert math teacher.", temperature=0.2)
-            
-            # Parse the response manually
-            solution = parse_mathematical_response(direct_response, question)
+        # Validate and fix solution structure
+        if not solution or 'final_answer_latex' not in solution:
+            logger.warning("Solver response missing final_answer_latex, creating default")
+            solution = {
+                "final_answer_latex": "\\text{Solution computed}",
+                "solution_steps": []
+            }
         
-        # Validate and structure the solution
-        final_solution = structure_solution(solution, question)
+        # Ensure solution_steps is a valid list
+        if 'solution_steps' not in solution or not isinstance(solution['solution_steps'], list):
+            logger.warning("Solver response missing or invalid solution_steps")
+            solution['solution_steps'] = [
+                {
+                    "step_number": 1,
+                    "description": "Analyzing the problem",
+                    "latex_expression": "\\text{Problem: } " + question[:50]
+                }
+            ]
         
-        logger.info(f"Solver generated {len(final_solution.get('solution_steps', []))} steps")
-        logger.info(f"Final answer: {final_solution.get('final_answer_latex', 'N/A')[:100]}")
-        
-        return {
-            "result": f"Generated solution with {len(final_solution.get('solution_steps', []))} steps",
-            "data": final_solution
-        }
-        
-    except Exception as e:
-        logger.error(f"Solver error: {str(e)}\n{traceback.format_exc()}")
-        
-        # Fallback: Create a basic solution structure
-        return {
-            "result": "Generated basic solution",
-            "data": create_fallback_solution(question, problem_type)
-        }
-
-
-def parse_mathematical_response(response: str, question: str) -> dict:
-    """Parse a free-form mathematical response into structured format"""
-    lines = response.strip().split('\n')
-    steps = []
-    final_answer = ""
-    
-    step_num = 1
-    current_step = ""
-    
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-            
-        # Look for step indicators
-        if any(indicator in line.lower() for indicator in ['step', 'solution', 'therefore', 'answer', 'result']):
-            if current_step:
-                steps.append({
-                    "step_number": step_num,
-                    "description": f"Step {step_num}",
-                    "latex_expression": current_step
+        # Validate each step
+        validated_steps = []
+        for i, step in enumerate(solution['solution_steps']):
+            if isinstance(step, dict):
+                validated_steps.append({
+                    "step_number": step.get("step_number", i + 1),
+                    "description": step.get("description", f"Step {i + 1}"),
+                    "latex_expression": step.get("latex_expression", "...")
                 })
-                step_num += 1
-                current_step = ""
-            
-            if 'answer' in line.lower() or 'result' in line.lower() or 'therefore' in line.lower():
-                final_answer = line
         
-        current_step += line + " "
-    
-    # Add last step
-    if current_step:
-        steps.append({
-            "step_number": step_num,
-            "description": f"Step {step_num}",
-            "latex_expression": current_step.strip()
-        })
-    
-    # Extract final answer if found
-    if not final_answer and steps:
-        final_answer = steps[-1].get("latex_expression", "See solution above")
-    
-    return {
-        "final_answer": final_answer,
-        "steps": steps
-    }
-
-
-def structure_solution(solution: dict, question: str) -> dict:
-    """Structure the solution into the required format"""
-    
-    # Handle different possible keys
-    final_answer = solution.get("final_answer") or solution.get("final_answer_latex") or "See detailed steps"
-    steps_data = solution.get("steps") or solution.get("solution_steps") or []
-    
-    # Convert steps to required format
-    structured_steps = []
-    for i, step in enumerate(steps_data):
-        if isinstance(step, dict):
-            structured_steps.append({
-                "step_number": step.get("step") or step.get("step_number", i + 1),
-                "description": step.get("description", f"Step {i + 1}"),
-                "latex_expression": step.get("math") or step.get("latex_expression") or step.get("latex", "...")
-            })
-    
-    # Ensure we have at least some steps
-    if len(structured_steps) < 2:
-        structured_steps = [
-            {
-                "step_number": 1,
-                "description": "Problem Analysis",
-                "latex_expression": f"\\text{{Given: }} {question[:100]}"
-            },
-            {
-                "step_number": 2,
-                "description": "Solution",
-                "latex_expression": final_answer
-            }
-        ]
-    
-    return {
-        "final_answer_latex": final_answer,
-        "solution_steps": structured_steps
-    }
-
-
-def create_fallback_solution(question: str, problem_type: str) -> dict:
-    """Create a fallback solution when LLM fails"""
-    return {
-        "final_answer_latex": "\\text{Computing solution...}",
-        "solution_steps": [
-            {
-                "step_number": 1,
-                "description": "Problem Identification",
-                "latex_expression": f"\\text{{Type: {problem_type}}}"
-            },
-            {
-                "step_number": 2,
-                "description": "Given Problem",
-                "latex_expression": f"\\text{{{question[:100]}}}"
-            },
-            {
-                "step_number": 3,
-                "description": "Solution Approach",
-                "latex_expression": "\\text{Applying mathematical techniques to solve}"
-            }
-        ]
-    }
-
-
-async def verifier_agent(question: str, solution: dict) -> dict:
-    """Verify the solution"""
-    logger.info("Verifier agent processing...")
-    
-    final_answer = solution.get("final_answer_latex", "")
-    steps_count = len(solution.get("solution_steps", []))
-    
-    # Simple verification logic
-    confidence = 0.85
-    if steps_count >= 3:
-        confidence = 0.90
-    if final_answer and len(final_answer) > 10:
-        confidence = min(confidence + 0.05, 0.95)
-    
-    verification = {
-        "is_correct": True,
-        "confidence": confidence,
-        "verification_method": "logical_verification",
-        "issues": []
-    }
-    
-    logger.info(f"Verification confidence: {confidence}")
-    
-    return {
-        "result": f"Verified with {confidence*100:.0f}% confidence",
-        "data": verification
-    }
-
-
-@app.post("/solve", response_model=SolutionResponse)
-async def solve_math_problem(question: MathQuestion):
-    """Main endpoint to solve math problems"""
-    logger.info(f"Received question: {question.text[:100]}...")
-    
-    agent_trace = []
-    agent_results = []
-    
-    try:
-        # Check if it's a casual query
-        if not is_math_question(question.text):
-            logger.info("Handling as casual query")
-            return await handle_casual_query(question.text)
+        if validated_steps:
+            solution['solution_steps'] = validated_steps
         
-        # AGENT 1
+        logger.info(f"Solver generated {len(solution.get('solution_steps', []))} steps")
+        logger.info(f"Final answer: {solution.get('final_answer_latex', 'N/A')[:100]}")
+        
+        return {
+            "result": f"Generated detailed solution with {len(solution.get('soluti
